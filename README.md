@@ -41,13 +41,11 @@ where path specifies the input contexts.
 models/magicpig_config.json adjusts proper hyper-parameters such as (K, L) in LSH algorithms and which layer to keep in GPUs.
 
 ```bibtex
-@misc{chen2024magicpiglshsamplingefficient,
-      title={MagicPIG: LSH Sampling for Efficient LLM Generation}, 
-      author={Zhuoming Chen and Ranajoy Sadhukhan and Zihao Ye and Yang Zhou and Jianyu Zhang and Niklas Nolte and Yuandong Tian and Matthijs Douze and Leon Bottou and Zhihao Jia and Beidi Chen},
-      year={2024},
-      eprint={2410.16179},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2410.16179}, 
+@article{chen2024magicpig,
+  title={MagicPIG: LSH Sampling for Efficient LLM Generation},
+  author={Chen, Zhuoming and Sadhukhan, Ranajoy and Ye, Zihao and Zhou, Yang and Zhang, Jianyu and Nolte, Niklas and Tian, Yuandong and Douze, Matthijs and Bottou, Leon and Jia, Zhihao and others},
+  journal={arXiv preprint arXiv:2410.16179},
+  year={2024}
+}
 }
 ```
