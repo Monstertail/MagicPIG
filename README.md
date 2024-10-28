@@ -9,12 +9,12 @@ Only Intel CPUs are supported now. We also provide a huggingface-like implementa
 ## Experiments
 
     cd RULER/RULER/scripts
-    K=10 # LSH hyper-parameter for MagicPIG and Page Size for Quest
-    L=150 # LSH hyper-parameter for MagicPIG and number of selected pages for Quest
-    sink=4 # sink token
-    local=64 # local token
-    model=0 # 0: MagicPIG; 1: Quest; 2: TopK 3: Oracle Sampling
-    expid=0
+    export K=10 # LSH hyper-parameter for MagicPIG and Page Size for Quest
+    export L=150 # LSH hyper-parameter for MagicPIG and number of selected pages for Quest
+    export sink=4 # sink token
+    export local=64 # local token
+    export model=0 # 0: MagicPIG; 1: Quest; 2: TopK 3: Oracle Sampling
+    export expid=0
     bash run.sh llama3-8b-chat-128k synthetic $K $L $sink $local $model $expid
 
 This script is implemented in huggingface to replicate accuracy results (for RULER benchmark). The reference file (for model and KV cache implementation) can be found in refs/.
