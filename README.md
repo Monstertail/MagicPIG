@@ -53,7 +53,7 @@ models/magicpig_config.json adjusts proper hyper-parameters such as (K, L) in LS
 ```bibtex
 @article{chen2024magicpig,
   title={MagicPIG: LSH Sampling for Efficient LLM Generation},
-  author={Chen, Zhuoming and Sadhukhan, Ranajoy and Ye, Zihao and Zhou, Yang and Zhang, Jianyu and Nolte, Niklas and Tian, Yuandong and Douze, Matthijs and Bottou, Leon and Jia, Zhihao and others},
+  author={Chen, Zhuoming and Sadhukhan, Ranajoy and Ye, Zihao and Zhou, Yang and Zhang, Jianyu and Nolte, Niklas and Tian, Yuandong and Douze, Matthijs and Bottou, Leon and Jia, Zhihao and Chen, Beidi},
   journal={arXiv preprint arXiv:2410.16179},
   year={2024}
 }
