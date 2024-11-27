@@ -1,5 +1,5 @@
 # MagicPIG: LSH Sampling for Efficient LLM Generation
-
+[[paper](https://arxiv.org/abs/2410.16179)]
 ## installation
 
     bash install.sh
