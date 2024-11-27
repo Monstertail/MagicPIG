@@ -43,6 +43,13 @@ where path specifies the input contexts.
 
 models/magicpig_config.json adjusts proper hyper-parameters such as (K, L) in LSH algorithms and which layer to keep in GPUs.
 
+## Milestones
+- [ ] Integrate Flashinfer attention (on going).
+- [ ] CPU thread scheduling (on going).
+- [ ] GPU-CPU pipelines.
+- [ ] Multi-GPU.
+
+
 ```bibtex
 @article{chen2024magicpig,
   title={MagicPIG: LSH Sampling for Efficient LLM Generation},
