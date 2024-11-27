@@ -1,5 +1,8 @@
 # MagicPIG: LSH Sampling for Efficient LLM Generation
 [[paper](https://arxiv.org/abs/2410.16179)]
+
+This repo is for exploring the possibility of **GPU-CPU** system powered by LSH.
+
 ## installation
 
     bash install.sh
