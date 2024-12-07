@@ -30,6 +30,10 @@ class HuggingFaceModel:
             from llama_topk import LlamaForCausalLM
         elif Q == 5:
             from transformers import LlamaForCausalLM
+        elif Q == 6:
+            from llama_grape import LlamaForCausalLM
+        # elif Q == 7:
+        #     from llama_pos import LlamaForCausalLM
         self.tokenizer = AutoTokenizer.from_pretrained(name_or_path, trust_remote_code=True)
         
         if Q!=5:
@@ -41,8 +45,9 @@ class HuggingFaceModel:
         self.pipeline = None
         self.model :LlamaForCausalLM = LlamaForCausalLM.from_pretrained(name_or_path, trust_remote_code=True, device_map="auto", torch_dtype=torch.bfloat16, **model_kwargs)
         self.model.config.K = K
-        self.model.config.L = L if (Q in [0, 1]) else QR
-        self.model.config.window = W
+        # self.model.config.L = L if (Q in [0, 1]) else QR
+        self.model.config.L = L # fix the meaning of L to be the token budget
+        self.model.config.window = W # window size of local tokens
         self.model.config.QR = QR
         self.approx = (Q!=5)
         self.model.config.cache_mode = "topk" if Q == 2 else "topp"
