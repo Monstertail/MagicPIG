@@ -41,7 +41,6 @@ class QuestCache(Cache):
         self.K = K #Page Size
         self.L = L #Budget 
         self.recall = None
-        
         self.mode = mode
         self.min_key: List[torch.Tensor] = []
         self.max_key: List[torch.Tensor] = []
@@ -50,6 +49,9 @@ class QuestCache(Cache):
         self.window = window
         self.hash_matrices: List[torch.Tensor] = []
         self.preserve_layer = 2
+        # jinwei: I implement a function to update page to keep the window size nearest tokens rather than the last 'window size' tokens in prompt.
+        self.incomplete_key_buffer: List[torch.Tensor] = []
+        self.incomplete_value_buffer: List[torch.Tensor] = []
         
     def __getitem__(self, layer_idx: int) -> List[Tuple[torch.Tensor]]:
         """
@@ -126,11 +128,16 @@ class QuestCache(Cache):
             self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=-2)
             self.selected_key_cache[layer_idx] = torch.cat([self.selected_key_cache[layer_idx], key_states], dim=-2)
             self.selected_value_cache[layer_idx] = torch.cat([self.selected_value_cache[layer_idx], value_states], dim=-2)
+            #jinwei: update page
+            self.update_page(layer_idx)
             num_activate_chunks = int(self.L)
             if layer_idx >= 2:
                 if num_activate_chunks > 0:
                     min_cache = repeat_kv(self.min_key[layer_idx], self.num_qh // self.num_kh)
                     max_cache = repeat_kv(self.max_key[layer_idx], self.num_qh // self.num_kh)
+
+                    #jinwei(todo):add min and max of key buffer to min and max cache for selection. now only use the min and max of selected key cache without buffer.
+                    
 
                     min_value = min_cache * query_states
                     max_value = max_cache * query_states
@@ -241,4 +248,93 @@ class QuestCache(Cache):
 
         self.min_key.append(unselected_key_cache.min(dim=-2).values)
         self.max_key.append(unselected_key_cache.max(dim=-2).values)
-        
+    # jinwei: I implement a function to update page to keep the window size nearest tokens rather than the last 'window size' tokens in prompt.
+    @classmethod
+    def update_page(self, layer_idx: int):
+        """
+        Updates the selected_key_cache for a specific layer, ensuring it retains exactly `window_size` tokens.
+        Evicts excess tokens into a buffer. When the buffer accumulates enough tokens for a full page,
+        they are added to unselected_key_cache. Incomplete pages are NOT included in min_key and max_key calculations.
+        """
+        self.ensure_buffer_initialized(layer_idx)
+        # Access the current selected cache
+        k_cache = self.selected_key_cache[layer_idx]
+        v_cache = self.selected_value_cache[layer_idx]
+
+        seq_len = k_cache.shape[2]  # Current sequence length
+
+        # Ensure window_size >= page_size
+        if self.window < self.K:
+            raise ValueError("window_size must be greater than or equal to page_size (K).")
+
+        # Check if the selected cache exceeds the window size
+        if seq_len > self.window:
+            # Split into valid window and excess tokens
+            excess_tokens = seq_len - self.window
+            excess_key_cache = k_cache[..., :excess_tokens, :]
+            excess_value_cache = v_cache[..., :excess_tokens, :]
+            remaining_key_cache = k_cache[..., excess_tokens:, :]
+            remaining_value_cache = v_cache[..., excess_tokens:, :]
+
+            # Update selected cache to retain only the valid window
+            self.selected_key_cache[layer_idx] = remaining_key_cache
+            self.selected_value_cache[layer_idx] = remaining_value_cache
+
+            # Add evicted tokens to buffer
+            if self.incomplete_key_buffer[layer_idx] is not None:
+                excess_key_cache = torch.cat([self.incomplete_key_buffer[layer_idx], excess_key_cache], dim=-2)
+                excess_value_cache = torch.cat([self.incomplete_value_buffer[layer_idx], excess_value_cache], dim=-2)
+            else:
+                # Initialize the buffer with evicted tokens
+                self.incomplete_key_buffer[layer_idx] = excess_key_cache
+                self.incomplete_value_buffer[layer_idx] = excess_value_cache
+            # Split buffer into full pages and remaining tokens
+            num_chunks = excess_key_cache.shape[-2] // self.K
+            remaining_tokens = excess_key_cache.shape[-2] % self.K
+
+            if num_chunks > 0:
+                full_key_pages = excess_key_cache[..., :num_chunks * self.K, :].reshape(
+                    1, self.num_kh, num_chunks, self.K, self.head_dim
+                )
+                full_value_pages = excess_value_cache[..., :num_chunks * self.K, :].reshape(
+                    1, self.num_kh, num_chunks, self.K, self.head_dim
+                )
+
+                # Append full pages to unselected cache
+                if layer_idx < len(self.unselected_key_cache):
+                    self.unselected_key_cache[layer_idx] = torch.cat(
+                        [self.unselected_key_cache[layer_idx], full_key_pages], dim=2
+                    )
+                    self.unselected_value_cache[layer_idx] = torch.cat(
+                        [self.unselected_value_cache[layer_idx], full_value_pages], dim=2
+                    )
+                else:
+                    raise ValueError("unselected_key_cache and unselected_value_cache must be initialized before updating the cache.")
+
+                # Update min_key and max_key for the full pages
+                buffer_min = full_key_pages.min(dim=-2).values
+                buffer_max = full_key_pages.max(dim=-2).values
+                if layer_idx < len(self.min_key):
+                    # Concatenate buffer_min and min_key[layer_idx]
+                    self.min_key[layer_idx] = torch.cat([self.min_key[layer_idx], buffer_min.unsqueeze(0)], dim=0)
+                    self.max_key[layer_idx] = torch.cat([self.max_key[layer_idx], buffer_max.unsqueeze(0)], dim=0)
+                else:
+                    raise ValueError("min_key and max_key must be initialized before updating the cache.")
+
+            # Store remaining tokens in the buffer
+            self.incomplete_key_buffer[layer_idx] = (
+                excess_key_cache[..., num_chunks * self.K:, :] if remaining_tokens > 0 else None
+            )
+            self.incomplete_value_buffer[layer_idx] = (
+                excess_value_cache[..., num_chunks * self.K:, :] if remaining_tokens > 0 else None
+            )
+    def ensure_buffer_initialized(self, layer_idx: int):
+        """
+        Ensures that the incomplete_key_buffer and incomplete_value_buffer have been initialized
+        for the given layer_idx.
+        """
+        while len(self.incomplete_key_buffer) <= layer_idx:
+            self.incomplete_key_buffer.append(None)
+
+        while len(self.incomplete_value_buffer) <= layer_idx:
+            self.incomplete_value_buffer.append(None)
