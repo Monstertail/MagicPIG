@@ -160,7 +160,7 @@ class GrapeCache(Cache):
                 union_indices = flattened_indices.unique()
                 # union_indices now contains the unified token indices for all heads
                 # grape selection of tokens in range [:-window size] for each head
-                selected_indices= self.grape_selection(union_indices, layer_idx, middle_budget=self.L) # dim: [batch, num_heads, 1, num_activate_tokens]
+                selected_indices= self.grape_selection(union_indices_before=union_indices, layer_idx=layer_idx, middle_budget=self.L, query_states=query_states) # dim: [batch, num_heads, 1, num_activate_tokens]
                 assert selected_indices.shape[-1] == self.L, "selected tokens should be equal to the budget!"
                 self.selected_tokens.append(selected_indices)
 
@@ -304,8 +304,70 @@ class GrapeCache(Cache):
         self.min_key[layer_idx] = torch.cat([self.min_key[layer_idx], new_min], dim=-1)  
         self.max_key[layer_idx] = torch.cat([self.max_key[layer_idx], new_max], dim=-1)  
 
-    def grape_selection(self, union_indices_before: torch.Tensor, layer_idx: int, middle_budget: int)-> torch.Tensor: # output the expanded tokens with dim: [batch, num_heads, 1, middle_budget]
-        pass
+    def grape_selection(
+        self, union_indices_before: torch.Tensor, layer_idx: int, middle_budget: int, query_states: torch.Tensor
+    ) -> torch.Tensor:  # Output the expanded tokens with dim: [batch=1, num_heads, 1, middle_budget]
+        # union_indices_before: dim: [num_unique_tokens]
+        grape_graph = self.grape_graphs[layer_idx]  # dim: [batch, num_heads, num_k, kn]
+        key_len_grape = grape_graph.shape[-2]
+
+        # Initialize the selected tokens to -1
+        selected_indices = torch.zeros(
+            1, grape_graph.shape[1], 1, middle_budget, device=grape_graph.device, dtype=query_states.dtype  
+        )
+
+        # For each head, expand the key candidates based on the graph
+        for head in range(grape_graph.shape[1]):
+            # Get the key neighbor graph for this head
+            key_neighbor_graph = grape_graph[0, head]  # dim: [num_k, kn]
+
+            # Identify neighbors of union_indices_before in the key_neighbor_graph
+            expanded_indices = []
+            for idx in union_indices_before:
+                expanded_indices.extend(key_neighbor_graph[idx].tolist())
+            expanded_indices = torch.tensor(expanded_indices, device=grape_graph.device, dtype=query_states.dtype).unique()
+
+            # Filter the expanded indices to ensure they are before the local window
+            window_size = self.window
+            sequence_length = self.get_seq_length(layer_idx)
+            threshold = sequence_length - window_size
+            filtered_indices = expanded_indices[expanded_indices < threshold]
+
+            if len(filtered_indices) >= middle_budget:
+                # Fine-grained selection of tokens by quantized dot product
+                selected_indices[0, head, 0, :] = self.quantized_dot_product(
+                    query_states=query_states[0, head],
+                    key_states=self.key_cache[layer_idx][0, head],
+                    indices_before_selection=filtered_indices,
+                    budget=middle_budget,
+                    layer_idx=layer_idx
+                )
+            else:
+                # Expand the indices from the end of tokens in [:-window_size]
+                # Ensure the number of selected tokens equals `middle_budget`
+                additional_indices = torch.arange(
+                    max(0, threshold - (middle_budget - len(filtered_indices))),
+                    threshold,
+                    device=grape_graph.device,
+                    dtype=torch.long
+                )
+                selected_indices[0, head, 0, :len(filtered_indices)] = filtered_indices
+                selected_indices[0, head, 0, len(filtered_indices):] = additional_indices[:middle_budget - len(filtered_indices)]
+
+        return selected_indices
     # todo(jinwei): implement the quantized dot product for fine-grained selection of tokens
-    def quantized_dot_product():
-        pass
+    def quantized_dot_product(
+        self, query_states: torch.Tensor, key_states: torch.Tensor, indices_before_selection: torch.Tensor, budget: int, layer_idx: int
+    ) -> torch.Tensor:
+        # Get the key states for the selected indices
+        key_states_before_selection = key_states[:, indices_before_selection, :]  # Shape: [1, len(indices_before_selection), head_dim]
+        
+        # Compute the dot product between query and selected keys
+        qk = torch.matmul(query_states.unsqueeze(1), key_states_before_selection.transpose(1, 2))  # dim: [1, 1, len(indices_before_selection)]
+        
+        # Top-k selection based on dot product
+        topk_indices = qk.squeeze(1).topk(k=budget, dim=-1).indices  # Shape: [budget]
+        
+        # Map the top-k indices back to the original indices
+        return indices_before_selection[topk_indices]
+        
