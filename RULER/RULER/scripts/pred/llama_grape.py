@@ -154,7 +154,7 @@ class LlamaAttention(nn.Module):
             self.is_sparse = False
             kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
+            # todo: build grape graphs and save it in grape_cache
             if past_key_value is not None:
                 cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
                 key_states, value_states = past_key_value.update(key_states, value_states, query_states, self.layer_idx, cache_kwargs)
@@ -171,9 +171,8 @@ class LlamaAttention(nn.Module):
             assert bsz == 1
             self.prefill_len = q_len
             self.dec_len = 0
-            if self.select_kv:
-                # todo: build grape graphs and save it in grape_cache
-                past_key_value.build_page(layer_idx=self.layer_idx)
+            # if self.select_kv:
+            #     past_key_value.build_page(layer_idx=self.layer_idx)
             with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
                 attn_output = F.scaled_dot_product_attention(
                 query_states,
@@ -190,7 +189,7 @@ class LlamaAttention(nn.Module):
 
             if not output_attentions:
                 attn_weights = None
-            # todo: build grape graphs and save it in grape_cache
+            
             return attn_output, attn_weights, past_key_value
 
         else:
