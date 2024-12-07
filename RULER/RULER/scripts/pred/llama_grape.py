@@ -58,7 +58,7 @@ apply_rotary_pos_emb,
 rotate_half,
 repeat_kv,
 LlamaMLP)
-from quest_cache import QuestCache # todo: replace with grape_cache
+from grape_cache import GrapeCache # todo: replace with grape_cache
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "LlamaConfig"
@@ -106,7 +106,7 @@ class LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[QuestCache] = None,
+        past_key_value: Optional[GrapeCache] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
         cache_position: Optional[torch.LongTensor] = None,
@@ -172,6 +172,7 @@ class LlamaAttention(nn.Module):
             self.prefill_len = q_len
             self.dec_len = 0
             if self.select_kv:
+                # todo: build grape graphs and save it in grape_cache
                 past_key_value.build_page(layer_idx=self.layer_idx)
             with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
                 attn_output = F.scaled_dot_product_attention(
@@ -716,7 +717,7 @@ class LlamaModel(LlamaPreTrainedModel):
         if (
             use_cache and (isinstance(past_key_values, DynamicCache) or past_key_values is None)
         ):  # kept for BC (non `Cache` `past_key_values` inputs)
-            past_key_values = QuestCache(K=self.config.K, 
+            past_key_values = GrapeCache(K=self.config.K, 
                                            L=self.config.L,
                                            mode=self.config.cache_mode,
                                            window=self.config.window)
