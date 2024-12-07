@@ -248,8 +248,8 @@ class QuestCache(Cache):
 
         self.min_key.append(unselected_key_cache.min(dim=-2).values)
         self.max_key.append(unselected_key_cache.max(dim=-2).values)
+    
     # jinwei: I implement a function to update page to keep the window size nearest tokens rather than the last 'window size' tokens in prompt.
-    @classmethod
     def update_page(self, layer_idx: int):
         """
         Updates the selected_key_cache for a specific layer, ensuring it retains exactly `window_size` tokens.
@@ -315,9 +315,14 @@ class QuestCache(Cache):
                 buffer_min = full_key_pages.min(dim=-2).values
                 buffer_max = full_key_pages.max(dim=-2).values
                 if layer_idx < len(self.min_key):
-                    # Concatenate buffer_min and min_key[layer_idx]
-                    self.min_key[layer_idx] = torch.cat([self.min_key[layer_idx], buffer_min.unsqueeze(0)], dim=0)
-                    self.max_key[layer_idx] = torch.cat([self.max_key[layer_idx], buffer_max.unsqueeze(0)], dim=0)
+                    # Dynamically determine the dimensions of self.min_key[layer_idx]
+                    _, num_kh, num_existing_chunks, head_dim = self.min_key[layer_idx].shape
+                    # Reshape buffer_min and buffer_max to align with self.min_key[layer_idx]
+                    buffer_min = buffer_min.reshape(1, num_kh, 1, head_dim)  # Add the chunk dimension
+                    buffer_max = buffer_max.reshape(1, num_kh, 1, head_dim)
+                   # Concatenate along the chunk dimension (dim=2)
+                    self.min_key[layer_idx] = torch.cat([self.min_key[layer_idx], buffer_min], dim=2)
+                    self.max_key[layer_idx] = torch.cat([self.max_key[layer_idx], buffer_max], dim=2)
                 else:
                     raise ValueError("min_key and max_key must be initialized before updating the cache.")
 
@@ -328,6 +333,7 @@ class QuestCache(Cache):
             self.incomplete_value_buffer[layer_idx] = (
                 excess_value_cache[..., num_chunks * self.K:, :] if remaining_tokens > 0 else None
             )
+    
     def ensure_buffer_initialized(self, layer_idx: int):
         """
         Ensures that the incomplete_key_buffer and incomplete_value_buffer have been initialized

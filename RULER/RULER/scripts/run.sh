@@ -23,7 +23,7 @@ fi
 
 
 # Root Directories
-export CUDA_VISIBLE_DEVICES=7,8
+export CUDA_VISIBLE_DEVICES=2
 ROOT_DIR="./dataset" # the path that stores generated task samples and model predictions. 
 MODEL_DIR="" # the path that contains individual model folders from HUggingface.
 ENGINE_DIR="" # the path that contains individual engine folders from TensorRT-LLM.
