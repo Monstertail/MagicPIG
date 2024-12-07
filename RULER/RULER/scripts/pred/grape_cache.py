@@ -165,10 +165,16 @@ class GrapeCache(Cache):
                 # Shape: [num_unique_tokens]
                 union_indices = flattened_indices.unique()
                 # union_indices now contains the unified token indices for all heads
+
                 # grape selection of tokens in range [:-window size] for each head
-                selected_indices= self.grape_selection(union_indices_before=union_indices, layer_idx=layer_idx, middle_budget=self.L, query_states=query_states, key_states=return_key) # dim: [batch, num_heads, 1, num_activate_tokens]
+                # selected_indices= self.grape_selection(union_indices_before=union_indices, layer_idx=layer_idx, middle_budget=self.L, query_states=query_states, key_states=return_key) # dim: [batch, num_heads, 1, num_activate_tokens]
+                selected_indices= self.grape_selection_efficient(union_indices_before=union_indices, layer_idx=layer_idx, middle_budget=self.L, query_states=query_states, key_states=return_key) # dim: [batch, num_heads, 1, num_activate_tokens]
+                # print("selected_indices shape",selected_indices.shape)
                 assert selected_indices.shape[-1] == self.L, "selected tokens should be equal to the budget!"
                 self.selected_tokens.append(selected_indices)
+
+                # # efficiency: just use layer 2 topk
+                # selected_indices = self.selected_tokens[2]
 
                 # get the window size of the latest tokens. 
                 # make sure the selected tokens from grape are between [:-window_size]
@@ -204,10 +210,10 @@ class GrapeCache(Cache):
                 merged_value = return_value.gather(dim=-2, index=merged_indices)  # Shape: [1, 32, num_indices, 128]
 
                 # Compute attention with the merged keys and values
-                if query_states.shape[-1] != merged_key.shape[-1]:
-                    print(f"Query States Shape: {query_states.shape}")
-                    print(f"Merged Key Shape: {merged_key.shape}")
-                    raise ValueError("Dimensions do not match for attention computation.")
+                # if query_states.shape[-1] != merged_key.shape[-1]:
+                #     print(f"Query States Shape: {query_states.shape}")
+                #     print(f"Merged Key Shape: {merged_key.shape}")
+                #     raise ValueError("Dimensions do not match for attention computation.")
                 attn_weights = torch.matmul(query_states, merged_key.transpose(2, 3)) / math.sqrt(self.head_dim)
                 attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
                 attn_output = torch.matmul(attn_weights, merged_value)
@@ -347,9 +353,13 @@ class GrapeCache(Cache):
                     # Log a warning for debugging.
                     # print(f"Warning: index {idx} is out of bounds for dimension 0 with size {key_neighbor_graph.shape[0]}")
                     pass
-            # Remove duplicates and convert to tensor
-            expanded_indices = list(set(expanded_indices))  # Remove duplicates at the list level
+            # # Remove duplicates and convert to tensor
+            # expanded_indices = list(set(expanded_indices))  # Remove duplicates at the list level
             expanded_indices = torch.tensor(expanded_indices, device=grape_graph.device, dtype=torch.long)  # Convert to tensor
+
+            # Remove duplicates using torch.unique
+            expanded_indices = torch.unique(expanded_indices, dim=-1)  # Ensure uniqueness along the last dimension
+            # Shape after unique: [1, num_heads, unique_indices]
 
             # Filter the expanded indices to ensure they are before the local window
             window_size = self.window
@@ -379,6 +389,56 @@ class GrapeCache(Cache):
                 selected_indices[0, head, 0, len(filtered_indices):] = additional_indices[:middle_budget - len(filtered_indices)]
 
         return selected_indices
+
+    # an efficient grape selection by processing all heads at the same time
+    def grape_selection_efficient(
+    self, union_indices_before: torch.Tensor, layer_idx: int, middle_budget: int, query_states: torch.Tensor, key_states: torch.Tensor
+    ) -> torch.Tensor:  # Output the expanded tokens with dim: [batch=1, num_heads, 1, middle_budget]
+        # union_indices_before: dim: [num_unique_tokens]
+        grape_graph = self.grape_graphs[layer_idx]  # dim: [batch, num_heads, num_k, kn]
+
+        # Gather expanded indices from grape_graph
+        valid_pivot = union_indices_before[union_indices_before<grape_graph.shape[-2]]
+        # Use `union_indices_before` to select neighbors in all heads
+        expanded_indices = grape_graph[0, :, valid_pivot, :].reshape(-1)  # Flatten neighbors across all heads: num_heads * num_unique_tokens * kn
+
+        # Combine union_indices_before and expanded_indices
+        expanded_indices = torch.cat([union_indices_before, expanded_indices])  # Combine original indices and neighbors
+
+        # Remove duplicates and sort the indices
+        unique_flattened = torch.unique(expanded_indices, sorted=True)  # Ensure unique indices across all heads
+
+        # Filter the unique indices to ensure they are before the local window
+        window_size = self.window
+        sequence_length = self.get_seq_length(layer_idx)
+        threshold = sequence_length - window_size
+        filtered_indices = unique_flattened[unique_flattened < threshold]  # Ensure indices are valid within threshold
+
+        if filtered_indices.size(0) >= middle_budget:
+            # Fine-grained selection of tokens using topk dot product
+            selected_indices = self.topk_dot_product(
+                query_states=query_states,  # Reshape query_states for all heads
+                key_states=key_states,
+                indices_before_selection=filtered_indices,
+                budget=middle_budget,
+                layer_idx=layer_idx
+            )  # Shape: [1, num_heads, 1, middle_budget]
+        else:
+            # Expand the indices from the end of tokens in [:-window_size]
+            # Ensure the number of selected tokens equals `middle_budget`
+            additional_indices = torch.arange(
+                max(0, threshold - (middle_budget - filtered_indices.size(0))),
+                threshold,
+                device=grape_graph.device,
+                dtype=torch.long
+            )
+            # Combine filtered indices with additional indices
+            selected_indices = torch.cat([filtered_indices, additional_indices[:middle_budget - filtered_indices.size(0)]])
+            # Ensure selected_indices is reshaped correctly for downstream processing
+            selected_indices = selected_indices.unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # Shape: [1, num_heads, 1, middle_budget]
+
+        return selected_indices
+
     # todo(jinwei): implement the quantized dot product for fine-grained selection of tokens
     def quantized_dot_product(
     self, query_states: torch.Tensor, key_states: torch.Tensor, indices_before_selection: torch.Tensor, budget: int, layer_idx: int
@@ -394,4 +454,17 @@ class GrapeCache(Cache):
         
         # Map the top-k indices back to the original indices
         return indices_before_selection[topk_indices]
-        
+    
+    def topk_dot_product(
+    self, query_states: torch.Tensor, key_states: torch.Tensor, indices_before_selection: torch.Tensor, budget: int, layer_idx: int
+    ) -> torch.Tensor:
+        key_states_before_selection = key_states[:,:, indices_before_selection ,:]
+        qk = torch.matmul(query_states, key_states_before_selection.transpose(2, 3)) # Shape:[bsz, num_head, 1, to_select]
+
+        topk_indices = qk.topk(k=budget, dim=-1).indices  # Shape: [bsz, num_head, 1, budget]
+        # # debug
+        # print("key_states_before_selection shape",key_states_before_selection.shape)
+        # print("qk shape",qk.shape)
+        # print("indices_before_selection[topk_indices] shape",indices_before_selection[topk_indices].shape)
+
+        return indices_before_selection[topk_indices]
