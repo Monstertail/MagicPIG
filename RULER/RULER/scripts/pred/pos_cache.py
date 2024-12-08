@@ -131,10 +131,11 @@ class PosCache(Cache):
                 return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
                 return_value = repeat_kv(self.value_cache[layer_idx], self.num_qh // self.num_kh)
                 attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)
+                v = return_value
                 if seq_len > self.window:
                     sample_layer_ = self.sample_layer
                     if self.resample:
-                        sample_layer_ = self.resample_lay
+                        sample_layer_ = self.resample_layer
                     excess_tokens = seq_len - self.window
                     index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh).to(query_states.dtype)
                     index_attn_weights = torch.matmul(query_states, index_key.transpose(2,3)) / math.sqrt(self.head_dim)                

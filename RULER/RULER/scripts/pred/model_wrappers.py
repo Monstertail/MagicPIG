@@ -48,7 +48,7 @@ class HuggingFaceModel:
         self.model.config.L = L if (Q in [0, 1]) else QR
         self.model.config.window = W
         self.model.config.QR = QR
-        self.model.config.resample = False
+        self.model.config.resample = False if K>0 else True
         self.model.config.sample_layer = 1
         self.model.config.resample_layer = 12
         self.approx = (Q!=5)
