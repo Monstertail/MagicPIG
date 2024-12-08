@@ -129,8 +129,21 @@ class TopkCache(Cache):
                 return_value = repeat_kv(self.value_cache[layer_idx], self.num_qh // self.num_kh)
                 attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)
                 w = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
-                num_activate_tokens = int(self.L * attn_weights.shape[-1])
-                topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
+                # num_activate_tokens = int(self.L * attn_weights.shape[-1])
+                num_activate_tokens = self.L 
+                # # (not fair)
+                # topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
+                window_size = self.window
+                # select top k indices for tokens before local window
+                topk_indices = (w[:,:,:,:-window_size]).topk(k=num_activate_tokens, dim=-1).indices
+                # select all tokens in the local window and concat with topk_indices
+                # select all tokens in the local window
+                local_indices = torch.arange(w.size(-1) - window_size, w.size(-1), device=w.device)  # Shape: [window_size]
+                local_indices = local_indices.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(w.size(0), w.size(1), w.size(2), -1)  # Shape: [batch, num_heads, seq_len, window_size]
+
+                # concat topk_indices with local_indices
+                topkn_indices = torch.cat([topk_indices, local_indices], dim=-1)  # Combined Shape: [batch, num_heads, seq_len, num_activate_tokens + window_size]
+
                 
                 attn_weights = attn_weights.gather(dim=-1, index=topk_indices)
                 topk_indices = topk_indices.squeeze(-2)
