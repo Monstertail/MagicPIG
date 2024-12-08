@@ -106,8 +106,7 @@ class PosCache(Cache):
             A tuple containing the updated key and value states.
         """
         # Update the number of seen tokens
-        
-        
+        # Todo: implement windowed cache
 
         # Update the cache
         if key_states.shape[2] > 1:
@@ -125,32 +124,39 @@ class PosCache(Cache):
                 self.prefill_tokens += key_states.shape[2]
                 return self.key_cache[layer_idx], self.value_cache[layer_idx]
         else:
-            
             self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim=-2)
             self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=-2)
+            seq_len = self.key_cache[layer_idx].shape[2]
             if layer_idx >= 2:
                 return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
                 return_value = repeat_kv(self.value_cache[layer_idx], self.num_qh // self.num_kh)
                 attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)
-                sample_layer_ = self.sample_layer
-                if self.resample:
-                    sample_layer_ = self.resample_lay 
-                return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
-                index_attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)                
-                w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
-                num_activate_tokens = int(self.L * attn_weights.shape[-1])
-                topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
-                
-                attn_weights = attn_weights.gather(dim=-1, index=topk_indices)
-                topk_indices = topk_indices.squeeze(-2)
-                topk_indices = topk_indices[...,None].expand(-1, -1, -1, self.head_dim)
-                v = return_value.gather(dim=-2, index=topk_indices)
+                if seq_len > self.window:
+                    sample_layer_ = self.sample_layer
+                    if self.resample:
+                        sample_layer_ = self.resample_lay
+                    excess_tokens = seq_len - self.window
+                    index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh)
+                    index_attn_weights = torch.matmul(query_states, index_key.transpose(2,3)) / math.sqrt(self.head_dim)                
+                    w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
+                    #print(attn_weights.shape)
+                    num_activate_tokens = int(self.L)
+                    topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
+                    
+                    window_indices = torch.arange(excess_tokens, seq_len).to(topk_indices.device).view(1, 1, 1, -1)
+                    window_indices = window_indices.repeat(topk_indices.shape[0], topk_indices.shape[1],topk_indices.shape[2], 1)
+                    topk_indices = torch.cat((topk_indices, window_indices), dim=-1)
+                    attn_weights = attn_weights.gather(dim=-1, index=topk_indices)
+                    topk_indices = topk_indices.squeeze(-2)
+                    topk_indices = topk_indices[...,None].expand(-1, -1, -1, self.head_dim)
+                    v = return_value.gather(dim=-2, index=topk_indices)
                 attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
                 attn_output = torch.matmul(attn_weights, v)
                 return attn_output
                 
                 
             else:
+                # full attention
                 return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
                 return_value = repeat_kv(self.value_cache[layer_idx], self.num_qh // self.num_kh)
                         
