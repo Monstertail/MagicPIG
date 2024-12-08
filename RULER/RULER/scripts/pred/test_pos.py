@@ -54,15 +54,15 @@ name_or_path = "meta-llama/Llama-3.1-8B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(name_or_path, trust_remote_code=True)
 model :LlamaForCausalLM = LlamaForCausalLM.from_pretrained(name_or_path, trust_remote_code=True, device_map="auto", torch_dtype=torch.bfloat16, **model_kwargs)
 model.config.K = 64
-model.config.L = 0
-model.config.window = 3
+model.config.L = 1
+model.config.window = 0
 model.config.resample = False
 model.config.sample_layer = 1
 model.config.resample_layer = 12
 model.config.cache_mode = "pos"
 model.eval()
 model.select_kv(False)
-prompt = "what is the captial of France?"
+prompt = "Cat is black. Dog is red. Bird is yellow. Sun is blue. Water is grey. Flowers are green. What is the color of the sun?"
 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 seq_len = inputs["input_ids"].shape[1]
 input_ids = inputs["input_ids"]
@@ -71,5 +71,5 @@ past_key_values = None
 with torch.inference_mode():
     output = model(input_ids=input_ids, attention_mask=attention_mask, past_key_values=past_key_values, use_cache=True)
     print(output.past_key_values.to_legacy_cache()[0][0].shape)
-    outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, past_key_values=past_key_values, use_cache=True)
+    outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, past_key_values=past_key_values, use_cache=True, max_length=100)
     print(tokenizer.decode(outputs[0], skip_special_tokens=True))

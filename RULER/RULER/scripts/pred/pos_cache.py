@@ -136,11 +136,11 @@ class PosCache(Cache):
                     if self.resample:
                         sample_layer_ = self.resample_lay
                     excess_tokens = seq_len - self.window
-                    index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh)
+                    index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh).to(query_states.dtype)
                     index_attn_weights = torch.matmul(query_states, index_key.transpose(2,3)) / math.sqrt(self.head_dim)                
                     w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
                     #print(attn_weights.shape)
-                    num_activate_tokens = int(self.L)
+                    num_activate_tokens = min(int(self.L), excess_tokens)
                     topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
                     
                     window_indices = torch.arange(excess_tokens, seq_len).to(topk_indices.device).view(1, 1, 1, -1)
