@@ -318,8 +318,8 @@ class QuestCache(Cache):
                     # Dynamically determine the dimensions of self.min_key[layer_idx]
                     _, num_kh, num_existing_chunks, head_dim = self.min_key[layer_idx].shape
                     # Reshape buffer_min and buffer_max to align with self.min_key[layer_idx]
-                    buffer_min = buffer_min.reshape(1, num_kh, 1, head_dim)  # Add the chunk dimension
-                    buffer_max = buffer_max.reshape(1, num_kh, 1, head_dim)
+                    buffer_min = buffer_min.reshape(1, self.num_kh, -1, self.head_dim)
+                    buffer_max = buffer_max.reshape(1, self.num_kh, -1, self.head_dim)
                    # Concatenate along the chunk dimension (dim=2)
                     self.min_key[layer_idx] = torch.cat([self.min_key[layer_idx], buffer_min], dim=2)
                     self.max_key[layer_idx] = torch.cat([self.max_key[layer_idx], buffer_max], dim=2)
