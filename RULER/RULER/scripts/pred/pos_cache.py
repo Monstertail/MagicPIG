@@ -45,7 +45,9 @@ class PosCache(Cache):
         self.resample_layer = resample_layer
         self.recall = None
         self.selected_tokens = None
-        
+        self.full_attn_layers = set([0,1, sample_layer])
+        if self.resample:
+            self.full_attn_layers.add(resample_layer)
         
         self.mode = mode
         self.min_key: List[torch.Tensor] = []
@@ -128,7 +130,7 @@ class PosCache(Cache):
             self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim=-2)
             self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=-2)
             seq_len = self.key_cache[layer_idx].shape[2]
-            if layer_idx >= 2:
+            if layer_idx not in self.full_attn_layers:
                 return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
                 return_value = repeat_kv(self.value_cache[layer_idx], self.num_qh // self.num_kh)
                 attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)
@@ -148,8 +150,6 @@ class PosCache(Cache):
                 attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
                 attn_output = torch.matmul(attn_weights, v)
                 return attn_output
-                
-                
             else:
                 # full attention
                 return_key = repeat_kv(self.key_cache[layer_idx], self.num_qh // self.num_kh)
@@ -161,7 +161,7 @@ class PosCache(Cache):
                 attn_weights = attn_weights.to(query_states.dtype)
                 attn_output = torch.matmul(attn_weights, return_value)
                 sample_layer_ = self.sample_layer
-                if (self.resample) and (layer_idx >= sample_layer_):
+                if (self.resample) and (layer_idx >= self.resample_layer):
                     sample_layer_ = self.resample_layer
                 if layer_idx == sample_layer_:
                     excess_tokens = seq_len - self.window

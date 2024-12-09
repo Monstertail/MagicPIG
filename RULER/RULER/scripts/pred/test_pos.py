@@ -53,7 +53,7 @@ model_kwargs = {"attn_implementation": "eager"}
 name_or_path = "meta-llama/Llama-3.1-8B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(name_or_path, trust_remote_code=True)
 model :LlamaForCausalLM = LlamaForCausalLM.from_pretrained(name_or_path, trust_remote_code=True, device_map="auto", torch_dtype=torch.bfloat16, **model_kwargs)
-model.config.K = 64
+model.config.K = 0
 model.config.L = 4
 model.config.window = 2
 model.config.resample = False
