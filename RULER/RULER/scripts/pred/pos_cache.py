@@ -134,7 +134,7 @@ class PosCache(Cache):
                 v = return_value
                 if seq_len > self.window:
                     sample_layer_ = self.sample_layer
-                    if self.resample:
+                    if (self.resample) and (layer_idx >= sample_layer_):
                         sample_layer_ = self.resample_layer
                     excess_tokens = seq_len - self.window
                     index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh).to(query_states.dtype)
@@ -147,6 +147,7 @@ class PosCache(Cache):
                     window_indices = torch.arange(excess_tokens, seq_len).to(topk_indices.device).view(1, 1, 1, -1)
                     window_indices = window_indices.repeat(topk_indices.shape[0], topk_indices.shape[1],topk_indices.shape[2], 1)
                     topk_indices = torch.cat((topk_indices, window_indices), dim=-1)
+                    #print(seq_len, num_activate_tokens,topk_indices)
                     attn_weights = attn_weights.gather(dim=-1, index=topk_indices)
                     topk_indices = topk_indices.squeeze(-2)
                     topk_indices = topk_indices[...,None].expand(-1, -1, -1, self.head_dim)

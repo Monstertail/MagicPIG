@@ -55,7 +55,7 @@ tokenizer = AutoTokenizer.from_pretrained(name_or_path, trust_remote_code=True)
 model :LlamaForCausalLM = LlamaForCausalLM.from_pretrained(name_or_path, trust_remote_code=True, device_map="auto", torch_dtype=torch.bfloat16, **model_kwargs)
 model.config.K = 64
 model.config.L = 1
-model.config.window = 0
+model.config.window = 2
 model.config.resample = False
 model.config.sample_layer = 1
 model.config.resample_layer = 12

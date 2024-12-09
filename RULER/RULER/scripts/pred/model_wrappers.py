@@ -45,7 +45,7 @@ class HuggingFaceModel:
         self.pipeline = None
         self.model :LlamaForCausalLM = LlamaForCausalLM.from_pretrained(name_or_path, trust_remote_code=True, device_map="auto", torch_dtype=torch.bfloat16, **model_kwargs)
         self.model.config.K = K
-        self.model.config.L = L if (Q in [0, 1]) else QR
+        self.model.config.L = L if (Q in [0, 1, 7]) else QR
         self.model.config.window = W
         self.model.config.QR = QR
         self.model.config.resample = False if K>0 else True
