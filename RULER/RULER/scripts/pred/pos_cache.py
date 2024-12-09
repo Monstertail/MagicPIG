@@ -44,6 +44,7 @@ class PosCache(Cache):
         self.sample_layer = sample_layer
         self.resample_layer = resample_layer
         self.recall = None
+        self.selected_tokens = None
         
         
         self.mode = mode
@@ -133,17 +134,9 @@ class PosCache(Cache):
                 attn_weights = torch.matmul(query_states, return_key.transpose(2,3)) / math.sqrt(self.head_dim)
                 v = return_value
                 if seq_len > self.window:
-                    sample_layer_ = self.sample_layer
-                    if (self.resample) and (layer_idx >= sample_layer_):
-                        sample_layer_ = self.resample_layer
                     excess_tokens = seq_len - self.window
-                    index_key = repeat_kv(self.key_cache[sample_layer_][...,:excess_tokens,:], self.num_qh // self.num_kh).to(query_states.dtype)
-                    index_attn_weights = torch.matmul(query_states, index_key.transpose(2,3)) / math.sqrt(self.head_dim)                
-                    w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
-                    #print(attn_weights.shape)
                     num_activate_tokens = min(int(self.L), excess_tokens)
-                    topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
-                    
+                    topk_indices = self.selected_tokens
                     window_indices = torch.arange(excess_tokens, seq_len).to(topk_indices.device).view(1, 1, 1, -1)
                     window_indices = window_indices.repeat(topk_indices.shape[0], topk_indices.shape[1],topk_indices.shape[2], 1)
                     topk_indices = torch.cat((topk_indices, window_indices), dim=-1)
@@ -167,6 +160,17 @@ class PosCache(Cache):
                 attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32) 
                 attn_weights = attn_weights.to(query_states.dtype)
                 attn_output = torch.matmul(attn_weights, return_value)
+                sample_layer_ = self.sample_layer
+                if (self.resample) and (layer_idx >= sample_layer_):
+                    sample_layer_ = self.resample_layer
+                if layer_idx == sample_layer_:
+                    excess_tokens = seq_len - self.window
+                    index_attn_weights = attn_weights[...,:excess_tokens,:]
+                    w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
+                    #print(attn_weights.shape)
+                    num_activate_tokens = min(int(self.L), excess_tokens)
+                    topk_indices = (w).topk(k=num_activate_tokens, dim=-1).indices
+                    self.selected_tokens = topk_indices
                 return attn_output
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
