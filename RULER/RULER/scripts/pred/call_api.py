@@ -232,7 +232,7 @@ def main():
         
     print(f'Predict {args.task} \nfrom {task_file}\nto {pred_file}')
     pred_file.parent.mkdir(parents=True, exist_ok=True)
-
+    print(task_file, pred_file)
     # Load data
     if os.path.exists(pred_file):
         pred_index = [sample['index'] for sample in read_manifest(pred_file)]
