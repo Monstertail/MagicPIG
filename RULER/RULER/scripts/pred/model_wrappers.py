@@ -50,8 +50,8 @@ class HuggingFaceModel:
         self.model.config.window = W # window size of local tokens
         self.model.config.QR = QR
         self.model.config.resample = False if K>0 else True
-        self.model.config.sample_layer = 1
-        self.model.config.resample_layer = 12
+        self.model.config.sample_layer = [1]
+        self.model.config.resample_layer = [5,10,15,20,25]
         self.approx = (Q!=5)
         self.model.config.cache_mode = "topk" if Q == 2 else "topp"
         if Q==7:

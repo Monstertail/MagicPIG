@@ -45,9 +45,13 @@ class PosCache(Cache):
         self.resample_layer = resample_layer
         self.recall = None
         self.selected_tokens = None
-        self.full_attn_layers = set([0,1, sample_layer])
+        self.sample_layers = set()
+        for layer in self.sample_layer:
+            self.sample_layers.add(layer)
         if self.resample:
-            self.full_attn_layers.add(resample_layer)
+            for layer in self.resample_layer:
+                self.sample_layers.add(layer)
+        self.full_attn_layers = self.sample_layers.union(set([0, 1]))
         
         self.mode = mode
         self.min_key: List[torch.Tensor] = []
@@ -160,10 +164,7 @@ class PosCache(Cache):
                 attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32) 
                 attn_weights = attn_weights.to(query_states.dtype)
                 attn_output = torch.matmul(attn_weights, return_value)
-                sample_layer_ = self.sample_layer
-                if (self.resample) and (layer_idx >= self.resample_layer):
-                    sample_layer_ = self.resample_layer
-                if layer_idx == sample_layer_:
+                if layer_idx in self.sample_layers:
                     excess_tokens = seq_len - self.window
                     index_attn_weights = attn_weights[...,:excess_tokens,:]
                     w = F.softmax(index_attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
